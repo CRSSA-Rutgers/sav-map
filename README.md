@@ -1,4 +1,4 @@
-# sav-map
+# Mapping Submerged Aquatic Vegetation via Satellite Imagery
 
 **READ ME**
 
