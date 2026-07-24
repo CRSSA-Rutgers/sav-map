@@ -1,0 +1,612 @@
+---
+title: "Barnegat Bay SAV 2023, Random Forest Modeling"
+author: "J.Stitt"
+date: "2026-03-31"
+output:
+  html_document: null
+  toc: true
+  toc_float: true
+  pdf_document: default
+params:
+  create_directory:
+    label: Build Folder Structure?
+    value: false
+  run_cleanref:
+    label: Prepare Field Reference Datasets?
+    value: true
+  run_buildimg:
+    label: Process Satellite Imagery & Build Mosaic Layers across Extent?
+    value: false
+  run_builddep:
+    label: Build Water Depth Layers across Extent?
+    value: true
+  run_buildwcc:
+    label: Build Water Quality Layers across Extent?
+    value: false
+  run_sunglint:
+    label: Include Sun Glint Corrected Bands in Workflow?
+    value: false
+  run_cleanpred:
+    label: Compile Predictor Variable Raster Stacks?
+    value: true
+  run_cleanmap:
+    label: Build Composite Maps by Seasons and Year?
+    value: true
+  run_modelrf:
+    label: Train the Random Forest Model?
+    value: false
+  run_predict:
+    label: Build Map from Model Predictions across Extent?
+    value: false
+  run_eval:
+    label: Perform Accuracy Assessments on Model?
+    value: false
+editor_options:
+  chunk_output_type: console
+  markdown:
+    wrap: 72
+---
+
+***Script Name:** SAV Mapping 2025, Random Forest Modeling
+[00m_sav25_satmap_WORKFLOW.Rmd]*
+
+***Purpose of Script:** Prepare the project ecosystem for satellite imagery-based SAV mapping in Barnegat Bay-Little Egg Harbor (BB-LEH), focused on spring-fall 2023*
+
+***\ > Inputs**: spreadsheets, raw satellite imagery, area of interest shapefile*
+
+***\ > Outputs**: clipped satellite imagery, collated spreadsheets with ancillary data, *
+
+
+# ***1. Set up the workspace***
+Organization of everything needed to pre-process data inputs and run the code, including R packages, folder & file pathways, and all relevant datasets.
+```{r setup, include=FALSE}
+### Set the default handling for each code chunk
+knitr::opts_chunk$set(include = TRUE, #show the code block commands & comments?
+                      echo = TRUE, #show the code block readouts?
+                      message = TRUE, #print messages in code block?
+                      warning = FALSE, #print warnings tripped by code block?
+                      results='hide',
+                      comment='', #removes ## before printed outputs
+                      fig.dim = c(8,16),
+                      fig.align = 'left'
+                      )
+```
+
+## *1.1. Load packages*
+Load all relevant R libraries used for this project, including workflow
+organization, spatial manipulation, data management, and visualization.
+```{r load-pkgs, message=FALSE}
+##----------------------------------------------------------------------------##
+## Workflow organization & tidy data
+##----------------------------------------------------------------------------##
+library(here)          #for file path mgmt
+library(devtools)      #for pkg maintenance [developer tools]
+library(tidyverse)     #for tidy data methods
+library(lubridate)     #for date & time manipulation
+library(beepr)         #for [unnecessary] sound notifications
+##----------------------------------------------------------------------------##
+## Spatial manipulation
+##----------------------------------------------------------------------------##
+library(terra)         #for geospatial data manipulation (rasters + vectors)
+library(sf)            #for spatial vector data reading and handling
+library(tidyterra)     #for plotting rasters with ggplot
+library(smoothr)       #for smoothing & tidying spatial features
+##----------------------------------------------------------------------------##
+## Modeling & prediction
+##----------------------------------------------------------------------------##
+library(gstat)         #for spatial geostatistical modeling & prediction
+library(spdep)         #for spatial statistics
+library(corrplot)      #for correlation plots
+library(pROC)          #for ROC curve display & analysis
+library(caret)         #for classification & regression model training
+library(randomForest)  #for Random Forest modeling
+library(ranger)        #for Random Forest modeling 
+library(yardstick)     #for model performance evaluation
+##----------------------------------------------------------------------------##
+## Data visualization & plotting
+##----------------------------------------------------------------------------##
+library(ggplot2)       #for plots & graphics
+library(RColorBrewer)  #for color palettes
+library(viridis)       #for additional color palettes
+library(plotrix)       #for specialized plots
+library(gridExtra)     #for laying out plots in grids
+library(patchwork)     #for organizing plots
+library(stringr)       #for text string manipulation
+library(scales)        #for plot layouts
+library(ggnewscale)    #for multiple fill & color scales
+library(forcats)       #for reordering varimp bars by importance
+library(tidytext)      #for text displays
+##----------------------------------------------------------------------------##
+beep(1) #----
+##----------------------------------------------------------------------------##
+```
+
+### *1.2.1. Assign project file pathways*
+Establish your hierarchical folder system for all data inputs,
+processing, and outputs; in this instance the project is organized
+primarily by file type and order of operations, and simplified by using
+the "here" package to locate all pathways with the project's root folder.
+```{r dir-paths}
+# > Identify where the root folder is located (*all files to be located within)
+here() #prints root folder filepath (specific to user/computer)
+##----------------------------------------------------------------------------##
+## INPUTS: existing datasets ----
+##----------------------------------------------------------------------------##
+### Folder for all dataset inputs (not modified in R)
+inputs = here("01_inputs")
+### Source types for data inputs
+inraw = here(inputs, "00_raw-data") #raw data files (untouched, tied to author)
+inaer = here(inputs, "01_aerial") #aerial imagery (modified/mosaicked)
+insat = here(inputs, "02_satellite") #satellite imagery (modified/mosaicked)
+inrst = here(inputs, "03_raster") #raster files (gridded cells)
+invct = here(inputs, "04_vector") #vector files (feature objects)
+incsv = here(inputs, "05_csv") #field data files (as comma-separated values)
+##----------------------------------------------------------------------------##
+## PROCESSING: All code and steps for project, intermediate outputs ----
+##----------------------------------------------------------------------------##
+### Folder for processing within R
+proc = here("02_processing")
+### Location for all scripts & processing steps in R
+scripts = here(proc, "00_scripts") #code scripts (R, RMD, QMD)
+proccsv = here(proc, "01_tables") #modified data tables (as comma-separated)
+procmap = here(proc, "02_mapping") #map/gis products
+procmod = here(proc, "03_modeling") #analysis models
+procimg = here(proc, "04_snapshots") #snapshots of process, settings, readouts
+predmap = here(proc, "05_pred-maps") #full predictive maps
+procmsc = here(proc, "06_proc-misc") #miscellaneous & draft reports
+### Sub-folders within Processing Workflow
+procrst = here(procmap, "01_rast_sat") #rasters/mosaics clipped to water AOI
+procdep = here(procmap, "02_rast_dep") #topobathy datasets & water models
+procwcc = here(procmap, "03_rast_wcc") #water column correction products
+procstk = here(procmap, "04_mod-stack") #all rasters combined for RF modeling
+procagg = here(procmap, "05_agg-stack") #seasonal composites of raster data
+proctrn = here(procmod, "01_training-data") #model training subsets
+procval = here(procmod, "02_validation-data") #model validation subsets 
+procres = here(procmod, "03_model-outputs") #Random Forest model reports
+procacc = here(procmod, "04_accuracy-eval") #RF model accuracy evaluations
+predbin = here(predmap, "01_prob_occ") #maps of occurrence probability by date
+predden = here(predmap, "02_prob-density") #maps of density probability by date
+predagg = here(predmap, "03_aggregate-time") #maps aggregated over time spans
+##----------------------------------------------------------------------------##
+## OUTPUTS: final products generated from processing ----
+##----------------------------------------------------------------------------##
+### Folder for all data outputs (deliverables)
+results = here("03_outputs")
+### Source types for data outputs
+tabs = here(results, "01_tables") #results tables (as .csvs)
+maps = here(results, "02_mapping") #final map products/gis layers
+mods = here(results, "03_modeling") #final model outputs
+figs = here(results, "04_graphics") #graphic outputs
+rept = here(results, "05_reports") #final reports
+misc = here(results, "06_misc") #additional files
+##----------------------------------------------------------------------------##
+beep(2) #----
+##----------------------------------------------------------------------------##
+```
+
+### *1.2.2. Create the folder pathways (if needed)*
+Using the pathways defined above, we can build those directories for the datasets, as needed. This would be used for rebuilding the project on a new computer.
+```{r dir-create, eval=params$create_directory, echo=FALSE}
+##----------------------------------------------------------------------------##
+## INPUTS: existing datasets ----
+##----------------------------------------------------------------------------##
+### Folder for all dataset inputs (not modified in R)
+dir.create(paste0(inputs))
+### Source types for data inputs
+dir.create(paste0(inraw))
+dir.create(paste0(inaer))
+dir.create(paste0(insat))
+dir.create(paste0(inrst))
+dir.create(paste0(invct))
+dir.create(paste0(incsv))
+#----------------------------------------------------------------------------##
+## PROCESSING: All code and steps for project, intermediate outputs ----
+#----------------------------------------------------------------------------##
+### Folder for processing within R
+dir.create(paste0(proc))
+### Location for all scripts & processing steps in R
+dir.create(paste0(scripts))
+dir.create(paste0(proccsv))
+dir.create(paste0(procmap))
+dir.create(paste0(procmod))
+dir.create(paste0(procimg))
+dir.create(paste0(predmap))
+dir.create(paste0(procmsc))
+### Sub-folders within Processing Workflow
+dir.create(paste0(procrst))
+dir.create(paste0(procdep))
+dir.create(paste0(procwcc))
+dir.create(paste0(procstk))
+dir.create(paste0(procagg))
+dir.create(paste0(proctrn))
+dir.create(paste0(procval))
+dir.create(paste0(procres))
+dir.create(paste0(procacc))
+dir.create(paste0(predbin))
+dir.create(paste0(predden))
+dir.create(paste0(predagg))
+#----------------------------------------------------------------------------##
+## OUTPUTS: products generated during processing ----
+#----------------------------------------------------------------------------##
+### Folder for all data outputs (deliverables)
+dir.create(paste0(results))
+### Source types for data outputs
+dir.create(paste0(tabs))
+dir.create(paste0(maps))
+dir.create(paste0(mods))
+dir.create(paste0(figs))
+dir.create(paste0(rept))
+dir.create(paste0(misc))
+##----------------------------------------------------------------------------##
+beep(3) #----
+##----------------------------------------------------------------------------##
+```
+
+
+# ***2. Prepare Reference Data***
+
+## **2.1. Define File Pathways to Inputs**
+
+``` {r rawdata-pathways}
+##----------------------------------------------------------------------------##
+## FIELD REFERENCE DATA: unmodified SAV survey results (ideally CSV files) ----
+##----------------------------------------------------------------------------##
+# > Point to field reference datasets (SAV survey plots from Spring & Fall 2023)
+field_data_subplots <- read.csv(here(incsv,"bb23_allPlots-2026mod.csv"))
+##----------------------------------------------------------------------------##
+## SATELLITE IMAGERY: raw PlanetScope image tile downloads (unzipped) ----
+##----------------------------------------------------------------------------##
+# > Point to location of all original PSS image tiles for 2023
+image_path <- here(inraw, "in2025_fromPlanetScope_satellite",
+                   "in20250606_savmap_bble2023_harmonized",
+                   "PSScene") 
+# > List all PSS image tiles names & file paths
+pss_tiles <- list.files(image_path, #using PSS filename (YYYYMMDD_hhmmss_xxx.tif)
+                        pattern = "\\harmonized_clip.tif$", #pull by format
+                        full.names = TRUE) #include entire file path
+##----------------------------------------------------------------------------##
+## CLIPPING GEOMETRY: isolate only water pixels & suitable SAV habitat ----
+##----------------------------------------------------------------------------##
+# > Point to location of Barnegat Bay-Little Egg Harbor water polygon (no land)
+waterclip_shp <- here(invct, "sav23aoi_BBLEH_WaterOnly_NoDocks_15mBuff.shp")#BBLEH
+# > Point to location of suitable SAV habitat (<2m depth, no dredge, no channels)
+sav2m_shp <- here(invct, "waterSAV_BBLEH_clean_0to2mDepth.shp")
+# > Define projection: UTM Z18N for accurate meters in NJ
+proj_crs <- "EPSG:32618"
+##----------------------------------------------------------------------------##
+## ANCILLARY DATA: additional datasets useful to the project ----
+##----------------------------------------------------------------------------##
+# > Point to USGS EAARL-B Topobathymetry Raster from 2012 (post-Sandy)
+lidar_3m <- here(invct,"topobDEM_eaarl2012_bbleh_3mRes.tif") #3m resolution
+# > Point to hand-drawn sand polygons shapefile
+sand_poly_path <- file.path(invct, "sand_training_area.shp")
+##----------------------------------------------------------------------------##
+beep(3) #----
+##----------------------------------------------------------------------------##
+```
+
+## **2.2. Load Study Area Polygons**
+In order to focus on the areas of interest for this study, water-only polygons were created prior (during Phase I) based on high-resolution aerial imagery. 
+```{r load-water, message=FALSE}
+##----------------------------------------------------------------------------##
+## Load Water Polygons: Barnegat Bay Full Shape ----
+##----------------------------------------------------------------------------##
+message("   >> Tidying Reference Data...\n      ", format(Sys.time(), "%T %Z"))
+# BRING IN WATER AREA: Load the full extent polygon (all depths)
+water_poly_sf <- st_read(waterclip_shp) %>% #use sf for robust geometry handling
+  st_transform(proj_crs) %>%
+  st_make_valid() # ensures no self-intersecting lines
+water_poly <- vect(water_poly_sf) #then convert to spatial vector
+# LOAD SHALLOW WATER POLYGON (SAV habitable zone: 0-2m)
+sav_poly_sf <- st_read(sav2m_shp) %>% #use sf for robust geometry handling
+  st_transform(proj_crs) %>%
+  st_make_valid() # ensures no self-intersecting lines
+sav_poly <- vect(sav_poly_sf) #then convert to spatial vector
+# > Calculate Study Area Statistics (m2, km2, hectares)
+total_bay_area_m2 <- expanse(water_poly, unit="m")
+total_bay_ha = total_bay_area_m2 / 10000
+total_bay_area_km2 = total_bay_area_m2 / 1000000
+total_habitat_area_m2 <- expanse(sav_poly, unit="m")
+total_habitat_ha = total_habitat_area_m2 / 10000
+total_habitat_area_km2 = total_habitat_area_m2 / 1000000
+deep_water_masked_ha = (total_bay_ha - total_habitat_ha)
+deep_water_masked_pct = ((total_bay_ha - total_habitat_ha) / total_bay_ha) *100
+# > Set pixel area (based on PlanetScope spatial resolution)
+pixel_area_m2 <- 9 #3m x 3m pixels
+# > Load topobathy as a raster layer
+lidar_res <- rast(lidar_3m)
+# > Crop to the same extent as the full water mask
+topob_dem <- crop(lidar_res, water_poly, mask = TRUE)
+# > Crop to the same extent as the shallow water mask (0-2m depths)
+topob_sav <- crop(lidar_res, sav_poly, mask = TRUE)
+# > Visualize these layers
+depth_lim <- clamp(topob_dem, lower = -4, upper = 0) #just for color separation
+bayTOTkm2 <- format(round(total_bay_area_km2, 0), big.mark = ",") #labeling stat
+savTOTkm2 <- format(round(total_habitat_area_km2, 0), big.mark = ",") #stat
+## Plot Water Depth ----
+depths2012 <- 
+  ggplot() + geom_spatraster(data = depth_lim, maxcell = 5e5) +
+  # geom_spatvector(data = sav_poly, fill = "transparent", color = "grey30",
+  #                 linewidth = 0.6, lty=1) + #to visualize 0-2m shallows
+  geom_spatvector(data = water_poly, fill = "transparent", color = "black", 
+                  linewidth = 0.8) +
+  scale_fill_whitebox_c(palette = "deep", direction = -1,
+                        na.value = "transparent",
+                        name = "Water \nDepth \n(2012)",
+                        breaks = c(0, -1, -2, -3, -4),
+                        labels = c("0m", "1m", "2m", "3m", ">4m")) +
+  labs(title = "Lidar-Derived Bathymetry, USGS EAARL-B", 
+       caption = bquote("Total Water Extent:" ~ .(bayTOTkm2) ~ "km"^2 
+                        ~ " |  Shallow Water (0-2m):" ~ .(savTOTkm2) ~ "km"^2)) +
+  theme(legend.position = "right", plot.title = element_text(face = "bold"),
+        panel.grid.major = element_line(color = "gray90", linetype = "dashed")) +
+  theme_minimal(); depths2012
+##----------------------------------------------------------------------------
+beep(5) #----
+##----------------------------------------------------------------------------##
+```
+
+This generates the base map for BB-LEH that will be used as the Area of Interest (AOI) for the project. In total, the bay covers `r format(total_bay_area_m2, big.mark = ",")` square meters of water (`r format(round(total_bay_ha, 0), big.mark = ",")` hectares [ha]; `r format(round(total_bay_area_km2, 0), big.mark = ",")` square km) -- shown by the *"water_poly"* variable. When we limit the area of interest to the shallower (0-2m) depths to focus on suitable habitat for seagrass, the area contracts to `r format(total_habitat_area_m2, big.mark = ",")` m^2^ (`r format(round(total_habitat_ha, 0), big.mark = ",")` ha; `r format(round(total_habitat_area_km2, 0), big.mark = ",")` km^2^) -- shown by the *"sav_poly"* variable. There were `r format(round(deep_water_masked_ha, 0), big.mark = ",")` ha of deep water (>2m depth) masked, or `r round(deep_water_masked_pct, 1)`% of the total BB-LEH water extent excluded from SAV modeling. 
+
+## **2.3. Clean and Organize Field Reference Datasets**
+
+### RUN CODE TO CLEAN FIELD REFERENCE DATA?
+*If user opts to include this workflow step, then the following script is run ...*
+```{r clean_ref-data, eval=params$run_cleanref}
+# > Run the R script to generate necessary variables and datasets
+source(paste0(scripts, "/01_clean_ref-data.R")) #field reference data prep
+message(paste0("All reference datasets cleaned. 
+               Assoicated graphics and diagnostics can be found in '", 
+               procimg, "'."))
+##----------------------------------------------------------------------------##
+beep(1) #----
+##----------------------------------------------------------------------------##
+```
+### ?ELSE? >> Load Existing Cleaned Field Reference Data
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r load_ref-data}
+if (params$run_cleanref == FALSE) { 
+  message("Data cleaning not run; existing cleaned reference datasets loaded.")
+  ##----------------------------------------------------------------------------##
+  ## Process Existing Field Reference Data ----
+  ##----------------------------------------------------------------------------##
+  # READ IN FIELD POINTS CSV: Load field reference point data (clipped to AOI)
+  #  > Reload the clipped points file (from prior processing)
+  points_clipped <- st_read(file.path(procmod, "2023fieldPoints_2m-only.shp"))
+  ##  > Reload the subset training and validation datasets
+  train <- here(proctrn, "sav23_training-plots.shp")
+  valid <- here(procval, "sav23_validation-plots.shp")
+  train_plots <- st_read(train)  %>%
+    st_transform(proj_crs) %>%
+    st_make_valid()
+  test_plots <- st_read(valid) %>%
+    st_transform(proj_crs) %>%
+    st_make_valid()
+  message(paste(">> Successfully loaded", nrow(points_clipped),
+                "points for Random Forest Modeling",
+                "\n   >> Training Points:", nrow(train_plots),
+                "\n   >> Validation Points:", nrow(test_plots)))
+  ## > Plot of training vs validation plots ----
+  # tvsplit_maps2023 <- 
+  #   ggplot() + geom_spatvector(data = water_poly, 
+  #                   aes(fill = "Deep Water (>2m)"), color = "cadetblue4") +
+  #   geom_spatvector(data = sav_poly, aes(fill = "Shallow/SAV (0-2m)"), 
+  #   color = "cadetblue3") +
+  #   scale_fill_manual(name = "Water Extent",
+  #                     values = c(
+  #                       "Deep Water (>2m)" = "cadetblue4", 
+  #                       "Shallow/SAV (0-2m)" = "cadetblue3")) +
+  #   geom_spatvector(data = water_poly, fill = "transparent", color = "black", 
+  #                   linewidth = 0.6) +
+  #   geom_sf(data = points_clipped, 
+  #           aes(color = splt_ss), size = 1) +
+  #   scale_color_manual(name = "Plot Assignment",
+  #                      values = c("training" = "gold1", 
+  #                                 "validation" = "maroon2")) +
+  #   labs(title = "Barnegat Bay 2023, Assignment for Random Forest Modeling",
+  #        subtitle = paste0("Survey plots (n=", n_kept,
+  #          ") assigned to model training [Yellow] or validation [Magenta]"),
+  #        caption = paste0(" n.Training = ", n_train, 
+  #                         "  |  n.Validation = ", n_val),
+  #        x = "Longitude", y = "Latitude") + theme_minimal() +
+  #   theme(legend.position = "right",
+  #     panel.grid.major = element_line(color = "gray90", linetype = "dashed"),
+  #     plot.title = element_text(face = "bold"))
+  # tvsplit_maps2023
+  ##----------------------------------------------------------------------------##
+  beep(10) #----
+  ##----------------------------------------------------------------------------##
+}
+```
+
+
+For random forest you will have several variables to set, such as
+optimal_threshold \<- 0.8 (or F1 / F2 value if dynamically chosen)
+
+
+# ***3. Predictor variable preparation***
+
+## **3.1. Imagery pre-processing**
+
+### ?RUN? >> Build Imagery Raster Stack
+*If user opts to include this workflow step, then the following script is run ...*
+```{r build_img-stack, eval=params$run_buildimg}
+source(paste0(scripts, "/02_build_img-stack.R")) #PSS imagery processing script
+message("Cleaned imagery raster stacks now built for all dates.")
+beep(5)
+```
+### ?ELSE? >> Load Existing Imagery Raster Stack
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r load_img-stack}
+if (params$run_buildimg == FALSE) {                  
+  ##----------------------------------------------------------------------------##
+  ##  ----
+  ##----------------------------------------------------------------------------##
+  message(
+    "Imagery pre-processing not run again; existing raster stacks loaded.")
+  # for (group in focal_groups) {
+  #   # > Parameterized iteration labels
+  #   curr_id  <- unique(group$group_id) #unique group ID (based on PSS datetime)
+  #   file_timestamp  <- group$time_string[1] #time stamp to use as ID (1st in grp)
+  #   file_ts <- substr(file_timestamp, 1, nchar(file_timestamp) - 2) #only HHmm
+  # stackdate <- as_date(substr(file_timestamp, 1,
+  #                             nchar(file_timestamp) - 7))#YMD
+  #   message(paste0(">> Loading normalized raster stack for ", stackdate))
+  #   mosaic_filepath    <- paste0(procrst, "/", file_ts, 
+  #                                "_pss8b_mcf-norm01_normalized.tif")
+  #   # img_norm <- rast(mosaic_filepath)
+  #   message(paste0(">> Loading boat-masked raster stack for ", stackdate))
+  #   cleaned_filepath   <- paste0(procrst, "/", file_ts,
+  #                                "_pss8b_mcf-norm02_boats-rm.tif")
+  #   img_clean   <- rast(cleaned_filepath)
+  #   message(paste0(">> Loading sun de-glinted raster stack for ", stackdate))
+  #   deglinted_filepath <- paste0(procrst, "/", file_ts,
+  #                                "_pss8b_mcf-norm03_deglint.tif")
+  #   # img_deglint <- rast(deglinted_filepath)
+  #   # > Use the boat-masked mosaic imagery for next steps
+  #   set.crs(img_clean, crs(proj_crs))
+  # }   
+}
+```
+
+### ?RUN? >> Include Sun Glint Correction
+*If user opts to include this workflow step, then the following script is run ...*
+```{r corr_sun-glint, eval=params$run_sunglint}
+message(
+  "Sun-deglinted mosaic 8-band PSS imagery to be used for further processing steps (also normalized & boat-masked).")
+##----------------------------------------------------------------------------##
+## Load the de-glinted 8-bands as the baseline for further processing ----
+##----------------------------------------------------------------------------##
+img_stack_paths <- list.files(procrst,   
+                              pattern = "deglint\\.tif$",
+                              full.names = TRUE)
+
+```
+### ?ELSE? >> Skip Sun Glint Correction
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r skip_sun-glint}
+if (params$run_sunglint == FALSE) { 
+  message(
+    "Normalized & boat-masked mosaic 8-band PSS imagery to be used for further processing steps.")
+  ##----------------------------------------------------------------------------##
+  ## Load the boat-masked 8-bands as the baseline for further processing ----
+  ##----------------------------------------------------------------------------##
+  img_stack_paths <- list.files(procrst,   
+                                pattern = "boats-rm\\.tif$",
+                                full.names = TRUE)
+}
+```
+
+
+## **3.2. Water depth processing**
+
+### ?RUN? >> Build Depth Raster Stack
+*If user opts to include this workflow step, then the following script is run ...*
+```{r build_dep-stack, eval=params$run_builddep}
+source(paste0(scripts, "/03_build_dep-stack.R")) #water depth processing script
+message("Water depth raster stacks now built for all dates.")
+beep(5)
+```
+### ?ELSE? >> Load Existing Depth Raster Stack
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r load_dep-stack}
+if (params$run_builddep == FALSE) {   
+  message(
+    "Depth pre-processing not run again; existing raster stacks loaded.")
+  ##----------------------------------------------------------------------------##
+  ##  Load the depth stack by date ----
+  ##----------------------------------------------------------------------------##
+  # barnegat_depth_stack <- rast(file.path(
+  #   procdep, paste0("TCB_allDepths_", file_ts, ".tif")))
+  dep_stack_paths <- list.files(procdep, full.names = TRUE)
+}
+```
+
+## **3.3. Water quality processing**
+
+### ?RUN? >> Build Water Quality Raster Stack
+*If user opts to include this workflow step, then the following script is run ...*
+```{r build_wcc-stack, eval=params$run_buildwcc}
+# > List all PSS image tiles names & file paths
+pss_tiles <- list.files(image_path, #using PSS filename (YYYYMMDD_hhmmss_xxx.tif)
+                        pattern = "\\harmonized_clip.tif$", #pull by format
+                        full.names = TRUE) #include entire file path
+source(paste0(scripts, "/04_build_wcc-stack.R")) #water quality processing script
+message("Water quality raster stacks now built for all dates.")
+beep(5)
+```
+### ?ELSE? >> Load Existing Water Quality Raster Stack*
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r load_wcc-stack}
+if (params$run_buildwcc == FALSE) {     
+  message(
+    "Water quality pre-processing not run again; existing raster stacks loaded.")
+  ##----------------------------------------------------------------------------##
+  ##  ----
+  ##----------------------------------------------------------------------------##
+  wcc_stack_paths <- list.files(procwcc, full.names = TRUE)
+}
+```
+
+# ***4. Data preparation for modeling***
+## **4.1. **
+### ?RUN? >> Compile Raster Stacks from Built Variables?
+*If user opts to include this workflow step, then the following script is run ...*
+```{r clean_pred-vars, eval=params$run_cleanpred}
+source(paste0(scripts, "/05_clean_pred-vars.R")) #raster stack compiling script
+message(paste0(">> All predictor variables now compiled:\n   Raster stacks for ", 
+               length(pss_datetimes),
+               " dates were created."))
+beep(3)
+```
+### ELSE, >> Load Existing Compiled Raster Stack by Timestamp
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r load_pred-vars}
+if (params$run_cleanpred == FALSE) {    
+  predvars_paths <- list.files(procstk, 
+                               pattern = "\\_2m.tif$", #pull by format
+                               full.names = TRUE)
+  message(paste0(">> Predictor variables not compiled again:\n   ", 
+                 length(predvars_paths),
+                 " existing raster stacks ready to load."))
+}
+```
+
+# ***5. Temporal aggregation***
+## **5.1. **
+### ?RUN? >> ?
+*If user opts to include this workflow step, then the following script is run ...*
+```{r clean_seasonal, eval=params$run_cleanmap}
+source(paste0(scripts, "/06_clean_comp-agg.R")) #raster stack compiling script
+message(paste0(">> All daily stacks now aggregated"))
+beep(3)
+```
+### ELSE, >> Load Existing Compiled Raster Stack by Timestamp
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r load_seasonal}
+
+```
+
+# ***6. Random Forest model training & prediction***
+## **6.1. **
+### ?RUN? >> ?
+*If user opts to include this workflow step, then the following script is run ...*
+```{r model_rf, eval=params$run_modelrf}
+source(paste0(scripts, "/07_model_rf.R")) #raster stack compiling script
+message(paste0(">> Random Forest modeling completed."))
+beep(3)
+```
+### ELSE, >> Load Existing Compiled Raster Stack by Timestamp
+*But if user chooses NOT to run the given workflow step, then the assumption is that script has been run previously & the following variables are loaded ...*
+```{r load_seasonal}
+
+```
+##----------------------------------------------------------------------------##
+
+
+##----------------------------------------------------------------------------##
+***Author:** Jess M. Stitt*
+***Date created:** 2026-03-31*
+***Email:**[js3585\@crssa.rutgers.edu](mailto:js3585@crssa.rutgers.edu){.email}
+// [jessmstitt\@gmail.com](mailto:jessmstitt@gmail.com){.email}*
+##----------------------------------------------------------------------------##

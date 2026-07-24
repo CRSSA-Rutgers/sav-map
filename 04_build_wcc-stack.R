@@ -16,6 +16,9 @@
 #  > [TIF] Raster Stack of Water Column Corrected Imagery: Sagawa x8, Lyzenga X1 
 #  ** ADDITIONAL CODE FOR TURBIDITY & ALGAE AT BOTTOM, NOT CURRENTLY RUN
 # ============================================================================= #
+# ---- LIBRARIES SPECIFIC TO THIS TASK ----
+# <NONE>
+# ============================================================================= #
 # ---- PROCESSING STEPS ----
 ##------------------------------------------------------------------------------#
 pss_stack_paths <- list.files(procrst,

@@ -22,7 +22,7 @@ library(curl)          #for reading URLs (web requests)
 library(dataRetrieval) #for accessing USGS datasets (tidal elevation)
 # ============================================================================= #
 # ---- USER-DEFINED VARIABLES FOR SCRIPT ----
-
+# <NONE>
 # ============================================================================= #
 # ---- PROCESSING STEPS ----
 ##------------------------------------------------------------------------------#
@@ -315,39 +315,48 @@ for (group in focal_groups) {
                 format(Sys.time(), "%T %Z")))
   # EXPORT OUTPUTS (ALL DEPTHS)
   # > Stack the depth layers into a single multiband raster
-  barnegat_depth_stack <- c(
+  completed_depth_stack <- c(
     tcb_m,             # Band 1: Temp-Calibrated Bathymetry (m) = final depth map
     surf_tide_aligned, # Band 2: Instantaneous Tide (NAVD88) = vertical anchor
     observed_depth,    # Band 3: Tide-Adjusted Depth (m) = tide elev - topob lidar
     tcb_residuals      # Band 4: TCB Residuals = error map between pSDB & TAD
   )
-  names(barnegat_depth_stack) <- c("TCB_Derived_Depth_m",
+  names(completed_depth_stack) <- c("TCB_Derived_Depth_m",
                                    "Tide_NAVD88_m", 
                                    "Tide_Adj_Depth_m",
                                    "Residuals_m")
-  plot(barnegat_depth_stack)
-  title(main = paste0("BBLEH Depth Stack: ",
-                     stackdate), line = 12)
+  # > Evaluate alignment with imagery-based raster stacks
+  if (compareGeom(img_focal, completed_depth_stack, stopOnError = FALSE)) {
+    message("Geometries match perfectly. Skipping resample.")
+    final_depth_stack <- completed_depth_stack
+  } else {
+    message("Geometries do not match. Resampling depth to imagery stack...")
+    # > If extents do not match, adjust alignment on depth stack
+    final_depth_stack <- terra::resample(completed_depth_stack, img_focal, 
+                                    method = "bilinear")
+  }
   # Write Temporally Calibrated Bathymetry (TCB) final raster stack (8-band)
   out_filename <- paste0("TCB_allDepths_", file_ts, ".tif") 
-  writeRaster(barnegat_depth_stack, file.path(procdep, out_filename), 
+  writeRaster(final_depth_stack, file.path(procdep, out_filename), 
               overwrite = TRUE)
   message(">> FINISHED Satellite Depth Pre-Processing for PSS Timestamp: ",
           stackdate, " \n   on ",
           format(Sys.time(), "%A, %b %d %Y %I:%M %p"))
-  # Turbidity layer can serve as a proxy for "Optical Error".
   ##----------------------------------------------------------------------------##
+  ## > VISUALS & DIAGNOSTICS
   ##----------------------------------------------------------------------------##
   message("   >> Loading calibrated depth layers...\n      ",
           format(Sys.time(), "%T %Z"))
   # LOAD DEPTH DATA: Read in water depth raster stack (built during pre-proc)
-  # barnegat_depth_stack <- rast(file.path(procwcc,
-  #                                        paste0("TCB_", file_ts, ".tif")))
-  tcb_final <- barnegat_depth_stack[[1]]   #temporally-calibrated bathymetry map
-  tide_map <-  barnegat_depth_stack[[2]]   #interpolated tidal elev map
-  tad_topo <-  barnegat_depth_stack[[3]]   #tide-adjusted depth
-  residuals <- barnegat_depth_stack[[4]]   #residual error of water depth
-  # plot(barnegat_depth_stack) #tcb_final = main depth map; residuals = error rate
+  # final_depth_stack <- rast(file.path(procwcc,
+  #                                     paste0("TCB_allDepths", file_ts, ".tif")))
+  tcb_final <- final_depth_stack[[1]]   #temporally-calibrated bathymetry map
+  tide_map <-  final_depth_stack[[2]]   #interpolated tidal elev map
+  tad_topo <-  final_depth_stack[[3]]   #tide-adjusted depth
+  residuals <- final_depth_stack[[4]]   #residual error of water depth
+  # plot(final_depth_stack)
+  # title(main = paste0("BBLEH Depth Stack: ",
+  #                     stackdate), line = 11)
   ##----------------------------------------------------------------------------##
   ## DEPTH ANOMALY PROCESSING: SPATIAL RESIDUAL CLUSTERING ----
   ##----------------------------------------------------------------------------##
@@ -607,22 +616,4 @@ message(paste0(">> Depth & Water Quality Processing completed for all dates on
                elapsed, " minutes"))
 Sys.sleep(2)
 beep(4)
-##------------------------------------------------------------------------------#
-## 6.  ----
-##------------------------------------------------------------------------------#
-
-
-
-
-
-
-
-##------------------------------------------------------------------------------#
-## XX. Visualize results ----
-##------------------------------------------------------------------------------#
-# ============================================================================= #
-# ---- OUTPUTS FROM SCRIPT ----
-##------------------------------------------------------------------------------#
-
-
 # ============================================================================= #
