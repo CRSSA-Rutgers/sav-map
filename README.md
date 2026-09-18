@@ -31,7 +31,7 @@ Barnegat Bay-Little Egg Harbor Estuary, New Jersey, USA
 4. Licenses/restrictions placed on the data: None
 
 5. Links to other publicly accessible locations of the data: 
-   [https://github.com/orgs/CRSSA-Rutgers](https://github.com/orgs/CRSSA-Rutgers/dashboard)
+   [https://github.com/jessmstitt](https://github.com/jessmstitt/sav-map)
 
 6. Links/relationships to ancillary data sets: NA
 
