@@ -45,25 +45,25 @@ Barnegat Bay-Little Egg Harbor Estuary, New Jersey, USA
         R markdown (.rmd) file containing all R scripts & packages used for analyses for this project, including project structure, data processing, and Random Forest (RF) modeling and evaluation.
 		
 **1.1.  01_clean_ref-data.R**
-		    R script 
+		    R script for cleaning the field reference data (ensuring columns names and data are organized for subsequent processing)
 		
 **1.2.  02_build_img-stack.R**
-		    R script 
+		    R script for building the Planet satellite imagery raster stack for use as predictor variables for RF modeling
 
 **1.3.  03_build_dep-stack.R**
-		    R script 
+		    R script for building the water depth raster stack for use as predictor variables for RF modeling
 
 **1.4.  04_build_wcc-stack.R**
-		    R script 
+		    R script for building the water column correction raster stack for use as predictor variables for RF modeling
 
 **1.5.  05_clean_pred-var.R**
-		    R script 
+		    R script for cleaning the predictor variables (aka the previously built raster stacks)
 
 **1.6.  06_model_rf.R**
-		    R script 
+		    R script for running Random Forest models using the field reference data and raster predictor variables
 
 **1.7.  07_clean_comp-maps.R**
-		    R script 
+		    R script for clean composite maps built from multi-date predicted maps of SAV
 
 *METHODOLOGICAL INFORMATION*
 
